@@ -119,7 +119,7 @@ class Client:
             self.last_received_segment = segments[-1]["text"]
 
         # Truncate to last 3 entries for brevity.
-        text = text[-3:]
+        # text = text[-3:]
         utils.clear_screen()
         utils.print_transcript(text)
 
@@ -167,6 +167,10 @@ class Client:
 
         if "segments" in message.keys():
             self.process_segments(message["segments"])
+            return
+
+        if "pause" in message.keys():
+            print("received a pause")
 
     def on_error(self, ws, error):
         print(f"[ERROR] WebSocket Error: {error}")

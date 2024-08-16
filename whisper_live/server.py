@@ -549,6 +549,17 @@ class ServeClientBase(object):
         except Exception as e:
             logging.error(f"[ERROR]: Sending data to client: {e}")
 
+    def send_pause_signal_to_client(self):
+        try:
+            self.websocket.send(
+                json.dumps({
+                    "uid": self.client_uid,
+                    "pause": True
+                })
+            )
+        except Exception as e:
+            logging.error(f"[ERROR]: Sending data to client: {e}")
+
     def disconnect(self):
         """
         Notify the client of disconnection and send a disconnect message.
@@ -753,7 +764,7 @@ class ServeClientFasterWhisper(ServeClientBase):
     SINGLE_MODEL = None
     SINGLE_MODEL_LOCK = threading.Lock()
 
-    def __init__(self, websocket, task="transcribe", device=None, language=None, client_uid=None, model="small.en",
+    def __init__(self, websocket, task="transcribe", device=None, language=None, client_uid=None, model="large-v3",
                  initial_prompt=None, vad_parameters=None, use_vad=True, single_model=False):
         """
         Initialize a ServeClient instance.
@@ -915,13 +926,19 @@ class ServeClientFasterWhisper(ServeClientBase):
         segments = []
         if self.t_start is None:
             self.t_start = time.time()
-        if time.time() - self.t_start < self.show_prev_out_thresh:
-            segments = self.prepare_segments()
+        
 
         # add a blank if there is no speech for 3 seconds
         if len(self.text) and self.text[-1] != '':
             if time.time() - self.t_start > self.add_pause_thresh:
                 self.text.append('')
+                self.send_pause_signal_to_client()
+                # clear the previous segments if it's paused
+                self.transcript = []
+
+        if time.time() - self.t_start < self.show_prev_out_thresh:
+            segments = self.prepare_segments()
+
         return segments
 
     def handle_transcription_output(self, result, duration):
@@ -933,7 +950,7 @@ class ServeClientFasterWhisper(ServeClientBase):
             duration (float): Duration of the transcribed audio chunk.
         """
         segments = []
-        if len(result):
+        if result and len(result):
             self.t_start = None
             last_segment = self.update_segments(result, duration)
             segments = self.prepare_segments(last_segment)
@@ -972,6 +989,7 @@ class ServeClientFasterWhisper(ServeClientBase):
             self.clip_audio_if_no_valid_segment()
 
             input_bytes, duration = self.get_audio_chunk_for_processing()
+
             if duration < 1.0:
                 continue
             try:
@@ -981,7 +999,6 @@ class ServeClientFasterWhisper(ServeClientBase):
                 if result is None or self.language is None:
                     self.timestamp_offset += duration
                     time.sleep(0.25)    # wait for voice activity, result is None when no voice activity
-                    continue
                 self.handle_transcription_output(result, duration)
 
             except Exception as e:
